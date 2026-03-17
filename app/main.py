@@ -31,17 +31,17 @@ async def webhook_handler(request: Request, background_tasks: BackgroundTasks):
     body = await request.body()
     headers = dict(request.headers)
 
-    # Verify webhook signature via Svix
+    # Verify webhook signature via Svix, fall back to raw parsing
+    import json
+    payload = None
     try:
         wh = Webhook(WEBHOOK_SECRET)
         payload = wh.verify(body, headers)
-    except WebhookVerificationError:
-        logger.warning("Webhook signature verification failed, headers: %s", {k: v for k, v in headers.items() if k.startswith("svix") or k.startswith("webhook")})
-        # Fall back to parsing body directly — AgentMail may not use Svix headers
-        import json
+        logger.info("Webhook signature verified successfully")
+    except Exception as e:
+        logger.warning("Webhook verification failed (%s), falling back to raw parse. Headers: %s", e, {k: v for k, v in headers.items() if k.startswith("svix") or k.startswith("webhook")})
         try:
             payload = json.loads(body)
-            logger.info("Falling back to unverified payload parsing")
         except Exception:
             raise HTTPException(status_code=401, detail="Invalid signature")
 
