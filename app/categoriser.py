@@ -53,8 +53,8 @@ def categorise_article(
 
         return result
 
-    except (json.JSONDecodeError, anthropic.APIError) as e:
-        logger.error(f"Categorisation failed: {e}")
+    except Exception as e:
+        logger.error(f"Categorisation failed: {type(e).__name__}: {e}")
         # Return minimal fallback
         return {
             "title": title,

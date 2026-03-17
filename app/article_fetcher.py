@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 SKIP_DOMAINS = {
     "unsubscribe", "manage", "tracking", "click", "list-manage",
     "mailchimp", "sendgrid", "campaign-archive",
+    "hs-sales-engage", "hubspot-links", "track.hubspot",
+    "go.pardot", "click.convertkit-mail", "email.mg",
 }
 
 # Patterns for links to skip
