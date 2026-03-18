@@ -1,4 +1,5 @@
 import json
+import re
 import logging
 
 import anthropic
@@ -28,6 +29,28 @@ Respond in JSON only, no preamble:
 }}"""
 
 
+def _extract_json(text: str) -> dict:
+    """Extract JSON from a response that may contain markdown fencing or preamble."""
+    # Try direct parse first
+    text = text.strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Try stripping markdown code fences
+    fenced = re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", text, re.DOTALL)
+    if fenced:
+        return json.loads(fenced.group(1).strip())
+
+    # Try finding the first { ... } block
+    brace_match = re.search(r"\{.*\}", text, re.DOTALL)
+    if brace_match:
+        return json.loads(brace_match.group(0))
+
+    raise json.JSONDecodeError("No JSON found in response", text, 0)
+
+
 def categorise_article(
     title: str, content: str, url: str, source: str, author: str
 ) -> dict:
@@ -45,7 +68,7 @@ def categorise_article(
             max_tokens=500,
             messages=[{"role": "user", "content": prompt}],
         )
-        result = json.loads(response.content[0].text)
+        result = _extract_json(response.content[0].text)
 
         # Preserve the fetched author if Claude returns Unknown but we have one
         if result.get("author", "Unknown") == "Unknown" and author != "Unknown":
