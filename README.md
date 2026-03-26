@@ -6,10 +6,13 @@ Webhook-driven service that receives forwarded articles via [AgentMail](https://
 
 1. Forward an article/link/newsletter to `importantlocation345@agentmail.to`
 2. AgentMail fires a webhook to this service
-3. Service extracts URLs, fetches article content
-4. Claude Haiku categorises and summarises the article
-5. Row is appended to the "Reading Library" Google Sheet
-6. Message is labelled as "processed" in AgentMail
+3. Service extracts URLs from the email, filtering out tracking/junk links (HubSpot, Mailchimp, etc.)
+4. Checks for duplicate URLs against existing sheet entries
+5. Fetches article content (with proper User-Agent, redirect handling)
+6. Extracts title (og:title > title tag > h1 > email subject)
+7. Claude Haiku categorises into topics/subtopics, generates summary and tags
+8. Row is appended to the "Reading Library" Google Sheet
+9. Message is labelled as "processed" in AgentMail
 
 ## Environment variables
 
