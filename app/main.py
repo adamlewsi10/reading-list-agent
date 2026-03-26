@@ -112,7 +112,7 @@ def process_message(payload: dict):
         if article.fetch_failed:
             notes_parts.append("Article fetch failed")
 
-        # Step 4: Write to Google Sheet
+        # Step 4: Write to Google Sheet (with duplicate detection)
         row_data = {
             "date_added": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"),
             "title": metadata.get("title", article.title),
@@ -126,7 +126,10 @@ def process_message(payload: dict):
             "forwarded_by": forwarded_by,
             "notes": "; ".join(notes_parts) if notes_parts else "",
         }
-        write_to_sheet(row_data)
+        was_written = write_to_sheet(row_data)
+
+        if not was_written:
+            logger.info(f"Duplicate URL skipped: {article.url}")
 
         # Step 5: Label message as processed
         try:
@@ -139,7 +142,7 @@ def process_message(payload: dict):
         except Exception as e:
             logger.warning(f"Failed to label message: {e}")
 
-        logger.info(f"Successfully processed: {metadata.get('title', subject)}")
+        logger.info(f"Successfully processed: {metadata.get('title', subject)} (written={was_written})")
 
     except Exception as e:
         logger.error(f"Processing failed for message: {e}", exc_info=True)

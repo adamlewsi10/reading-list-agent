@@ -8,15 +8,33 @@ from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
-# Domains to skip when extracting URLs
+# Domains/substrings to skip when extracting URLs
 SKIP_DOMAINS = {
     "unsubscribe", "manage", "tracking", "click", "list-manage",
     "mailchimp", "sendgrid", "campaign-archive",
     "hs-sales-engage", "hubspot-links", "track.hubspot",
     "go.pardot", "click.convertkit-mail", "email.mg",
+    "email-tracking", "hubspot.com/hs/", "t.sidekickopen",
 }
 
-# Patterns for links to skip
+# URL substrings that indicate tracking/junk — checked against the full URL
+BLOCKED_URL_PATTERNS = [
+    "hs-sales-engage.com",
+    "track.hubspot.com",
+    "email-tracking.",
+    "click.",
+    "unsubscribe",
+    "mailto:",
+    "tel:",
+    "list-manage.com",
+    "campaign-archive",
+    "/hs/cta/",
+    "/Ctc/",
+    "t.sidekickopen",
+    "go.pardot.com",
+]
+
+# Patterns for links to skip (checked against path+query)
 SKIP_PATTERNS = [
     r"unsubscribe",
     r"manage.preferences",
@@ -25,6 +43,7 @@ SKIP_PATTERNS = [
     r"pixel",
     r"beacon",
     r"open\.gif",
+    r"hs-sales-engage",
 ]
 
 HEADERS = {
@@ -32,7 +51,9 @@ HEADERS = {
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/120.0.0.0 Safari/537.36"
-    )
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.5",
 }
 
 
@@ -48,29 +69,65 @@ class ArticleContent:
     fetch_failed: bool = False
 
 
+def is_valid_article_url(url: str) -> bool:
+    """Check if a URL is a real article (not tracking/junk)."""
+    url_lower = url.lower()
+    if any(pattern in url_lower for pattern in BLOCKED_URL_PATTERNS):
+        return False
+
+    parsed = urlparse(url)
+    domain = parsed.netloc.lower()
+
+    # Skip tracking/unsubscribe domains
+    if any(skip in domain for skip in SKIP_DOMAINS):
+        return False
+
+    # Skip tracking patterns in path
+    path = parsed.path.lower() + parsed.query.lower()
+    if any(re.search(p, path) for p in SKIP_PATTERNS):
+        return False
+
+    return True
+
+
+def resolve_tracking_url(url: str) -> str | None:
+    """Try to resolve a tracking/redirect URL to its final destination."""
+    try:
+        resp = requests.head(url, headers=HEADERS, timeout=10, allow_redirects=True)
+        final_url = resp.url
+        if final_url != url and is_valid_article_url(final_url):
+            logger.info("Resolved tracking URL to: %s", final_url)
+            return final_url
+    except requests.RequestException as e:
+        logger.debug("Failed to resolve tracking URL %s: %s", url, e)
+    return None
+
+
 def extract_urls(text: str) -> list[str]:
     """Extract URLs from email text, filtering out tracking/unsubscribe links."""
     url_pattern = r'https?://[^\s<>\"\')}\]]+'
     raw_urls = re.findall(url_pattern, text)
 
     filtered = []
+    tracking_urls = []
+
     for url in raw_urls:
         # Strip trailing punctuation
         url = url.rstrip(".,;:!?")
-        parsed = urlparse(url)
-        domain = parsed.netloc.lower()
 
-        # Skip tracking/unsubscribe domains
-        if any(skip in domain for skip in SKIP_DOMAINS):
-            continue
+        if is_valid_article_url(url):
+            if url not in filtered:
+                filtered.append(url)
+        else:
+            tracking_urls.append(url)
+            logger.debug("Filtered out tracking URL: %s", url[:100])
 
-        # Skip tracking patterns in path
-        path = parsed.path.lower() + parsed.query.lower()
-        if any(re.search(p, path) for p in SKIP_PATTERNS):
-            continue
-
-        if url not in filtered:
-            filtered.append(url)
+    # If ALL URLs were filtered out, try to resolve the first tracking URL
+    if not filtered and tracking_urls:
+        logger.info("All %d URLs were tracking links — attempting to resolve first one", len(tracking_urls))
+        resolved = resolve_tracking_url(tracking_urls[0])
+        if resolved:
+            filtered.append(resolved)
 
     return filtered
 
@@ -99,10 +156,14 @@ def fetch_article(url: str) -> ArticleContent:
 
     soup = BeautifulSoup(resp.text, "html.parser")
 
-    # Extract title
-    if soup.title and soup.title.string:
+    # Extract title — priority: <title> → og:title → <h1>
+    og_title = soup.find("meta", attrs={"property": "og:title"})
+    if soup.title and soup.title.string and soup.title.string.strip():
         article.title = soup.title.string.strip()
-    elif soup.find("h1"):
+    if og_title and og_title.get("content", "").strip():
+        # og:title is usually cleaner than <title> (no site suffix)
+        article.title = og_title["content"].strip()
+    elif article.title == "Unknown" and soup.find("h1"):
         article.title = soup.find("h1").get_text(strip=True)
 
     # Extract author from meta tags

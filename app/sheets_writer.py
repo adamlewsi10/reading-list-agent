@@ -1,4 +1,5 @@
 import logging
+from urllib.parse import urlparse
 
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -23,8 +24,53 @@ def _get_sheets_service():
     return build("sheets", "v4", credentials=creds)
 
 
-def write_to_sheet(row_data: dict) -> None:
-    """Append a single row to the Reading Library sheet."""
+def _normalize_url(url: str) -> str:
+    """Normalize a URL for dedup comparison (strip trailing slash, lowercase)."""
+    url = url.strip().lower().rstrip("/")
+    # Remove common tracking query params
+    parsed = urlparse(url)
+    clean = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+    return clean
+
+
+def get_existing_urls() -> set[str]:
+    """Read existing URLs from column E of the sheet for dedup."""
+    try:
+        service = _get_sheets_service()
+        result = service.spreadsheets().values().get(
+            spreadsheetId=GOOGLE_SHEETS_ID,
+            range="Sheet1!E:E",
+        ).execute()
+        values = result.get("values", [])
+        urls = set()
+        for row in values:
+            if row and row[0]:
+                urls.add(_normalize_url(row[0]))
+        logger.info("Loaded %d existing URLs from sheet for dedup", len(urls))
+        return urls
+    except Exception as e:
+        logger.warning("Failed to read existing URLs for dedup: %s", e)
+        return set()
+
+
+def is_duplicate(url: str) -> bool:
+    """Check if a URL already exists in the sheet."""
+    if not url:
+        return False
+    existing = get_existing_urls()
+    normalized = _normalize_url(url)
+    return normalized in existing
+
+
+def write_to_sheet(row_data: dict) -> bool:
+    """Append a single row to the Reading Library sheet. Returns False if duplicate."""
+    url = row_data.get("url", "")
+
+    # Check for duplicates
+    if url and is_duplicate(url):
+        logger.info("Duplicate — skipped: %s", url)
+        return False
+
     service = _get_sheets_service()
 
     row = [
@@ -32,7 +78,7 @@ def write_to_sheet(row_data: dict) -> None:
         row_data.get("title", ""),
         row_data.get("author", ""),
         row_data.get("source", ""),
-        row_data.get("url", ""),
+        url,
         row_data.get("topic", ""),
         row_data.get("subtopic", ""),
         row_data.get("summary", ""),
@@ -49,4 +95,5 @@ def write_to_sheet(row_data: dict) -> None:
         body={"values": [row]},
     ).execute()
 
-    logger.info(f"Row written to sheet: {row_data.get('title', 'unknown')}")
+    logger.info("Row written to sheet: %s", row_data.get("title", "unknown"))
+    return True
