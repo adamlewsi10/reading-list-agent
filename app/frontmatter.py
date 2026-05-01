@@ -318,7 +318,8 @@ def render_frontmatter(fm: dict) -> str:
         return "\n" + items
 
     lines = ["---"]
-    for key in ["type", "source_url", "source_name", "author", "publication_date", "date_captured"]:
+    for key in ["type", "source_url", "source_name", "author", "publication_date",
+                "date_captured", "fetch_status"]:
         lines.append(f"{key}: {yaml_str(fm.get(key))}")
 
     for key in ["concepts", "entities_mentioned", "key_claims", "relevance_to"]:
