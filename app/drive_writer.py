@@ -2,6 +2,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
@@ -16,14 +17,9 @@ logger = logging.getLogger(__name__)
 
 INDEX_FILENAME = "index.json"
 
-_drive_service = None
-
 
 def _get_drive_service():
-    global _drive_service
-    if _drive_service:
-        return _drive_service
-
+    """Build a fresh Drive service each call — avoids stale httplib2 connections."""
     oauth = GOOGLE_DRIVE_OAUTH_JSON
     creds = Credentials(
         token=oauth.get("token"),
@@ -35,9 +31,7 @@ def _get_drive_service():
     )
     if creds.expired and creds.refresh_token:
         creds.refresh(Request())
-
-    _drive_service = build("drive", "v3", credentials=creds)
-    return _drive_service
+    return build("drive", "v3", credentials=creds)
 
 
 def canonical_url(url: str) -> str:
@@ -67,16 +61,23 @@ def _get_index_file_id(service) -> str | None:
     return files[0]["id"] if files else None
 
 
-def load_index(service) -> dict:
-    file_id = _get_index_file_id(service)
-    if not file_id:
-        return {"version": 1, "entries": []}
-    try:
-        content = service.files().get_media(fileId=file_id).execute()
-        return json.loads(content.decode("utf-8"))
-    except Exception as e:
-        logger.warning("Failed to load index.json: %s — starting fresh", e)
-        return {"version": 1, "entries": []}
+def load_index(service=None) -> dict:
+    """Load index.json with retry. Raises on persistent failure (don't bypass dedup)."""
+    for attempt in range(3):
+        try:
+            svc = _get_drive_service()  # Fresh connection each attempt
+            file_id = _get_index_file_id(svc)
+            if not file_id:
+                return {"version": 1, "entries": []}
+            content = svc.files().get_media(fileId=file_id).execute()
+            return json.loads(content.decode("utf-8"))
+        except Exception as e:
+            if attempt < 2:
+                logger.warning("index.json load attempt %d failed: %s — retrying", attempt + 1, e)
+                time.sleep(1.5)
+            else:
+                logger.error("index.json load failed after 3 attempts — aborting write to prevent duplicates")
+                raise
 
 
 def save_index(service, index: dict) -> None:
