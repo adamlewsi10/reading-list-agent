@@ -30,7 +30,7 @@ from app.config import (
 
 logger = logging.getLogger(__name__)
 
-DIGEST_RECIPIENT = "stavg@me.com"
+DIGEST_RECIPIENT = "ops@adamlewis.info"
 DIGEST_SENDER_NAME = "Reading Library"
 
 _claude = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
