@@ -7,6 +7,7 @@ import json
 from app.config import AGENTMAIL_API_KEY, AGENTMAIL_INBOX_ID, WEBHOOK_SECRET
 from app.article_fetcher import process_email
 from app.drive_writer import write_article
+from app.frontmatter import generate_frontmatter
 
 logging.basicConfig(
     level=logging.INFO,
@@ -82,6 +83,15 @@ def process_message(payload: dict):
             logger.info("No URL found in message — skipping (no-URL entries not stored)")
             return
 
+        fm = generate_frontmatter(
+            url=article.url,
+            title=article.title,
+            source=article.source,
+            author=article.author,
+            body_text=article.body_text,
+            fetch_failed=article.fetch_failed,
+        )
+
         was_written = write_article(
             url=article.url,
             title=article.title,
@@ -89,6 +99,7 @@ def process_message(payload: dict):
             author=article.author,
             body_text=article.body_text,
             fetch_failed=article.fetch_failed,
+            frontmatter=fm,
         )
 
         if was_written:

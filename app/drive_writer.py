@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 import hashlib
 import json
 import logging
 import re
 import time
+from typing import Optional
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
@@ -110,25 +113,18 @@ def add_to_index(url: str, filename: str, index: dict) -> None:
     })
 
 
-def _build_markdown(url: str, title: str, source: str, author: str,
-                    body_text: str, fetch_status: str) -> str:
-    date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    return f"""# {title}
-
-source_url: {url}
-source_name: {source}
-author: {author}
-date_captured: {date}
-fetch_status: {fetch_status}
-
----
-
-{body_text or "[No content extracted]"}
-"""
+def _build_markdown(title: str, body_text: str, frontmatter_block: str = "",
+                    fetch_status: str = "ok") -> str:
+    body = body_text or "[No content extracted]"
+    if frontmatter_block:
+        return f"{frontmatter_block}\n\n# {title}\n\n{body}\n"
+    # Fallback plain format (no frontmatter)
+    return f"# {title}\n\nfetch_status: {fetch_status}\n\n---\n\n{body}\n"
 
 
 def write_article(url: str, title: str, source: str, author: str,
-                  body_text: str, fetch_failed: bool) -> bool:
+                  body_text: str, fetch_failed: bool,
+                  frontmatter: Optional[dict] = None) -> bool:
     """
     Write one article as a Drive markdown file and update index.json.
     Returns True if written, False if duplicate.
@@ -147,7 +143,15 @@ def write_article(url: str, title: str, source: str, author: str,
     source_safe = sanitize_filename(source)
     filename = f"{date} {title_safe} — {source_safe}.md"
 
-    content = _build_markdown(url, title, source, author, body_text, fetch_status)
+    if frontmatter:
+        # Add fetch_status into frontmatter before rendering
+        frontmatter["fetch_status"] = fetch_status
+        from app.frontmatter import render_frontmatter
+        fm_block = render_frontmatter(frontmatter)
+    else:
+        fm_block = ""
+
+    content = _build_markdown(title, body_text, fm_block, fetch_status)
 
     meta = {"name": filename, "parents": [READING_LIBRARY_FOLDER_ID]}
     media = MediaInMemoryUpload(content.encode("utf-8"), mimetype="text/markdown")
