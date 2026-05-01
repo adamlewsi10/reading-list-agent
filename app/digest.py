@@ -57,20 +57,21 @@ def _get_drive_service():
 
 def _get_gmail_service():
     oauth = GOOGLE_DRIVE_OAUTH_JSON
-    scopes = oauth.get("scopes", ["https://www.googleapis.com/auth/drive"])
-    all_scopes = list(scopes)
-    if "https://www.googleapis.com/auth/gmail.send" not in all_scopes:
-        all_scopes.append("https://www.googleapis.com/auth/gmail.send")
+    # Always use the full scope set that includes gmail.send
+    scopes = [
+        "https://www.googleapis.com/auth/drive",
+        "https://www.googleapis.com/auth/gmail.send",
+        "https://www.googleapis.com/auth/gmail.readonly",
+    ]
     creds = Credentials(
-        token=oauth.get("token"),
+        token=None,  # Force refresh so we always get an access token with all scopes
         refresh_token=oauth["refresh_token"],
         token_uri=oauth.get("token_uri", "https://oauth2.googleapis.com/token"),
         client_id=oauth["client_id"],
         client_secret=oauth["client_secret"],
-        scopes=all_scopes,
+        scopes=scopes,
     )
-    if creds.expired and creds.refresh_token:
-        creds.refresh(Request())
+    creds.refresh(Request())
     return build("gmail", "v1", credentials=creds)
 
 
