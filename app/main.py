@@ -3,11 +3,13 @@ from fastapi import FastAPI, Request, BackgroundTasks, HTTPException
 from svix.webhooks import Webhook
 from agentmail import AgentMail
 import json
+import os
 
 from app.config import AGENTMAIL_API_KEY, AGENTMAIL_INBOX_ID, WEBHOOK_SECRET
 from app.article_fetcher import process_email
 from app.drive_writer import write_article
 from app.frontmatter import generate_frontmatter
+from app.digest import run_digest, handle_digest_reply
 
 logging.basicConfig(
     level=logging.INFO,
@@ -18,10 +20,31 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Reading List Agent")
 mail_client = AgentMail(api_key=AGENTMAIL_API_KEY)
 
+DIGEST_TRIGGER_SECRET = os.environ.get("DIGEST_TRIGGER_SECRET", "")
+
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.post("/trigger-digest")
+async def trigger_digest(request: Request, background_tasks: BackgroundTasks):
+    """Manually trigger the Friday digest. Protected by DIGEST_TRIGGER_SECRET."""
+    if DIGEST_TRIGGER_SECRET:
+        auth = request.headers.get("Authorization", "")
+        if not auth.startswith("Bearer ") or auth[7:] != DIGEST_TRIGGER_SECRET:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+    background_tasks.add_task(_run_digest_task)
+    return {"status": "accepted"}
+
+
+def _run_digest_task():
+    try:
+        result = run_digest(days=7)
+        logger.info("Digest result: %s", result)
+    except Exception as e:
+        logger.error("Digest failed: %s", e, exc_info=True)
 
 
 @app.post("/webhooks")
@@ -77,6 +100,21 @@ def process_message(payload: dict):
 
         logger.info("Processing message: %r (from %s)", subject, forwarded_by)
 
+        # Digest reply: Stav replied to a digest with his take
+        if _is_digest_reply(subject):
+            logger.info("Routing as digest reply: %r", subject)
+            handle_digest_reply(subject, text_body)
+            try:
+                mail_client.inboxes.messages.update(
+                    inbox_id=inbox_id,
+                    message_id=message_id,
+                    add_labels=["digest-reply"],
+                )
+            except Exception as e:
+                logger.warning("Failed to label digest reply: %s", e)
+            return
+
+        # Normal article capture
         article = process_email(subject, text_body, html_body)
 
         if not article.url:
@@ -118,3 +156,9 @@ def process_message(payload: dict):
 
     except Exception as e:
         logger.error("Processing failed: %s", e, exc_info=True)
+
+
+def _is_digest_reply(subject: str) -> bool:
+    """True if this email is a reply to a Reading Digest."""
+    s = subject.lower().strip()
+    return s.startswith("re:") and "reading digest" in s
