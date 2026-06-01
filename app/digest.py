@@ -606,8 +606,28 @@ def run_digest(days: int = 7) -> dict:
     articles = scan_reading_library(days=days)
 
     if not articles:
-        logger.info("No articles in last %d days — digest skipped", days)
-        return {"status": "skipped", "reason": "no articles", "count": 0}
+        # Don't go silent: an empty week and a broken pipeline used to look
+        # identical (no email either way). Send a short notice so the absence
+        # of a digest is never ambiguous.
+        logger.info("No articles in last %d days — sending empty-week notice", days)
+        today = datetime.now(timezone.utc)
+        week_start = (today - timedelta(days=days - 1)).strftime("%-d %b")
+        week_end = today.strftime("%-d %b")
+        subject = f"Reading Digest — {week_start} – {week_end} (nothing captured)"
+        html_body = (
+            '<html><body style="font-family:Georgia,serif;max-width:640px;'
+            'margin:0 auto;color:#222;line-height:1.6">'
+            f"<p>No articles were captured this week ({week_start} – {week_end}).</p>"
+            "<p>If you forwarded something to the reading inbox and it isn't here, "
+            "the capture pipeline may need a look.</p>"
+            "</body></html>"
+        )
+        try:
+            message_id = send_digest_email(subject, html_body)
+            return {"status": "empty", "reason": "no articles", "count": 0, "message_id": message_id}
+        except Exception as e:
+            logger.error("Failed to send empty-week notice: %s", e)
+            return {"status": "skipped", "reason": "no articles", "count": 0}
 
     patterns = detect_patterns(articles)
     subject, html_body = build_digest_email(articles, patterns)
