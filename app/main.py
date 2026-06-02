@@ -10,6 +10,7 @@ from app.article_fetcher import process_email
 from app.drive_writer import write_article
 from app.frontmatter import generate_frontmatter
 from app.digest import run_digest, handle_digest_reply
+from app.sheets_writer import append_capture_row
 
 logging.basicConfig(
     level=logging.INFO,
@@ -142,6 +143,17 @@ def process_message(payload: dict):
 
         if was_written:
             logger.info("Written to Drive: %s", article.title[:80])
+            # Phase 0 — append a mirror row to the Reading Library Sheet.
+            # `append_capture_row` never raises; a Sheet-write failure must
+            # NOT break capture (markdown + index.json are canonical).
+            append_capture_row(
+                title=article.title,
+                author=article.author,
+                source=article.source,
+                url=article.url,
+                forwarded_by=forwarded_by,
+                frontmatter=fm,
+            )
         else:
             logger.info("Duplicate — skipped: %s", article.url[:80])
 

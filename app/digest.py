@@ -57,11 +57,13 @@ def _get_drive_service():
 
 def _get_gmail_service():
     oauth = GOOGLE_DRIVE_OAUTH_JSON
-    # Always use the full scope set that includes gmail.send
+    # gmail.modify is the broadest read/write scope short of full Gmail;
+    # it subsumes send + readonly. Using modify (rather than send +
+    # readonly as separate strings) keeps the digest compatible with the
+    # personal-google refresh token, which was granted gmail.modify.
     scopes = [
         "https://www.googleapis.com/auth/drive",
-        "https://www.googleapis.com/auth/gmail.send",
-        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/gmail.modify",
     ]
     creds = Credentials(
         token=None,  # Force refresh so we always get an access token with all scopes
