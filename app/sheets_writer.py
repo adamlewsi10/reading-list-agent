@@ -52,15 +52,16 @@ SHEET_COLUMNS = [
     "Notes",
 ]
 
-# Full scope set the mirror needs. Spreadsheets is the addition vs. the
-# rest of the agent. If the refresh token wasn't issued with this scope,
-# `_get_sheets_service` will raise RefreshError(invalid_scope); we catch
-# that one explicitly so the operator sees a clear "re-auth required"
-# message rather than a noisy stack trace per capture.
+# Minimal scope set the Sheet mirror actually needs. Keeping this tight
+# (no gmail.* scopes) means the mirror works against any OAuth token that
+# was granted `drive + spreadsheets`, including the personal-google
+# refresh token shared across Stav's services. If the refresh token
+# wasn't issued with these scopes, `_get_sheets_service` raises
+# RefreshError(invalid_scope); we catch that one explicitly so the
+# operator sees a clear "re-auth required" message rather than a noisy
+# stack trace per capture.
 SHEETS_SCOPES = [
     "https://www.googleapis.com/auth/drive",
-    "https://www.googleapis.com/auth/gmail.send",
-    "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/spreadsheets",
 ]
 
