@@ -24,9 +24,26 @@ mail_client = AgentMail(api_key=AGENTMAIL_API_KEY)
 DIGEST_TRIGGER_SECRET = os.environ.get("DIGEST_TRIGGER_SECRET", "")
 
 
+@app.on_event("startup")
+def verify_library_folder_on_startup():
+    """Brief 15.6: record where the library folder ID resolves; archived is a hard failure."""
+    from app.config import READING_LIBRARY_FOLDER_ID
+    from app.drive_writer import _get_drive_service
+    from app.governance import verify_library_folder
+    try:
+        verify_library_folder(_get_drive_service(), READING_LIBRARY_FOLDER_ID)
+    except Exception as e:  # recorded in governance state and surfaced by /health
+        logger.error("Library folder check failed: %s", e)
+
+
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    from app.governance import status
+    from fastapi.responses import JSONResponse
+    s = status()
+    if s["error"]:
+        return JSONResponse(status_code=503, content={"status": "error", "error": s["error"], "library_path": s["path"]})
+    return {"status": "ok", "library_path": s["path"]}
 
 
 @app.post("/trigger-digest")

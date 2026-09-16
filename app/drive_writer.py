@@ -15,6 +15,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaInMemoryUpload
 
 from app.config import READING_LIBRARY_FOLDER_ID, GOOGLE_DRIVE_OAUTH_JSON
+from app.governance import check_write_parents
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +94,7 @@ def save_index(service, index: dict) -> None:
         service.files().update(fileId=file_id, media_body=media).execute()
     else:
         meta = {"name": INDEX_FILENAME, "parents": [READING_LIBRARY_FOLDER_ID]}
+        check_write_parents(meta["parents"], READING_LIBRARY_FOLDER_ID)
         service.files().create(body=meta, media_body=media, fields="id").execute()
     logger.info("index.json saved (%d entries)", len(index.get("entries", [])))
 
@@ -154,6 +156,7 @@ def write_article(url: str, title: str, source: str, author: str,
     content = _build_markdown(title, body_text, fm_block, fetch_status)
 
     meta = {"name": filename, "parents": [READING_LIBRARY_FOLDER_ID]}
+    check_write_parents(meta["parents"], READING_LIBRARY_FOLDER_ID)
     media = MediaInMemoryUpload(content.encode("utf-8"), mimetype="text/markdown")
     service.files().create(body=meta, media_body=media, fields="id").execute()
 
